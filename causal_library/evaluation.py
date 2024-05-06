@@ -1,9 +1,10 @@
 import numpy as np
 def evaluate_uplift(y_true, uplift, treatment, treatment_indicator=1, control_indicator=0, n_bins=10):
-    def r_squared_bam(y, y_hat):
+    def r_score_bam(y, y_hat):
         ss_tot = ((y-y.mean())**2).sum()
         ss_res = ((y-y_hat)**2).sum()
         return 1 - (ss_res/ss_tot),((y-y_hat)**2).mean()
+    uplift,treatment,y_true = np.array(uplift).reshape(-1),np.array(treatment).reshape(-1),np.array(y_true).reshape(-1)
     desc_score_indices = np.argsort(uplift, kind="mergesort")[::-1]
     y_true, uplift, treatment = y_true[desc_score_indices], uplift[desc_score_indices], treatment[desc_score_indices]
     bin_res_list, bin_range = [], np.linspace(0, len(uplift), n_bins+1).astype(int)
@@ -24,23 +25,24 @@ def evaluate_uplift(y_true, uplift, treatment, treatment_indicator=1, control_in
     bin_range =np.append([0], np.array(bin_res_list)[:,1])
     qini_range =np.append([0], np.array(bin_res_list)[:,2])
     auuc = auc(bin_range,qini_range/qini_range[-1])
-    calibration_r2_score, calibration_mse = r_squared_bam(np.array(bin_res_list)[:,0], np.array(bin_res_list)[:,-1])
+    calibration_r2_score, calibration_mse = r_score_bam(np.array(bin_res_list)[:,0], np.array(bin_res_list)[:,-1])
     return auuc, calibration_r2_score, calibration_mse, {"bin_range": bin_range, "qini_range": qini_range}, {"bin_range":np.array(bin_res_list)[:,1], "uplift_true_range": np.array(bin_res_list)[:,0], "uplift_pred_range": np.array(bin_res_list)[:,-1]}
 
 
 import pylift
-def evaluate_uplift_with_pylift(uplift, T_test, Y_test, treatment_indicator=1, control_indicator=0, n_bins=10):
-    def r_squared_bam(y, y_hat):
+def evaluate_uplift_with_pylift(y_true, uplift, treatment, treatment_indicator=1, control_indicator=0, n_bins=10):
+    def r_score_bam(y, y_hat):
         ss_tot = ((y-y.mean())**2).sum()
         ss_res = ((y-y_hat)**2).sum()
-        return 1 - (ss_res/ss_tot),((y-y_hat)**2).mean()
-    uplift,T_test,Y_test = np.array(uplift).reshape(-1),np.array(T_test).reshape(-1),np.array(Y_test).reshape(-1)
+        return [1 - (ss_res/ss_tot),((y-y_hat)**2).mean()]
+    uplift,treatment,y_true = np.array(uplift).reshape(-1),np.array(treatment).reshape(-1),np.array(y_true).reshape(-1)
+    treatment[treatment== treatment_indicator] = 1;treatment[treatment== control_indicator] = 0
 
-    pylift_eval_norm = pylift.eval.UpliftEval(T_test, Y_test, uplift, n_bins=n_bins)
+    pylift_eval_norm = pylift.eval.UpliftEval(treatment, y_true, uplift, n_bins=n_bins)
     bin_range = np.linspace(0, len(uplift), n_bins+1).astype(int)
-    true_uplift_bin = np.array(pylift_eval_norm.calc("uplift", n_bins= n_bins)[1])[::-1]
-    pre_uplift_bin = np.array([np.mean(uplift[bin_range[i]:bin_range[i+1]]) for i in range(n_bins)])
-
+    true_uplift_bin = np.array(pylift_eval_norm.calc("uplift", n_bins= n_bins)[1])
+    pre_uplift_bin = np.array([np.mean(np.sort(uplift)[::-1][bin_range[i]:bin_range[i+1]]) for i in range(n_bins)])
     lift_culmuate = pylift_eval_norm.calc("qini", n_bins= n_bins)
-    qini_test_norm = auc(lift_culmuate[0], lift_culmuate[1]/lift_culmuate[-1])
-    return pylift_eval_norm, [lift_culmuate[-1],np.mean(uplift), qini_test_norm], r_squared(true_uplift_bin, pre_uplift_bin), [true_uplift_bin,pre_uplift_bin]
+    qini_test_norm = auc(lift_culmuate[0], np.array(lift_culmuate[1])/lift_culmuate[1][-1])
+    return pylift_eval_norm, [qini_test_norm, lift_culmuate[1][-1],np.mean(uplift)] + r_score_bam(true_uplift_bin, pre_uplift_bin), [true_uplift_bin,pre_uplift_bin]
+eval_data_1 = evaluate_uplift_with_pylift(Y_test,ite_uplift,T_test)
